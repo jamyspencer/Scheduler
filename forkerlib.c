@@ -12,61 +12,80 @@
 #include "obj.h"
 
 
-pcb_t* GetEmptyPCB(int* pcb_states, pcb_t* head_ptr){
+int GetEmptyPCB(int* pcb_states, pcb_t* head_ptr){
 	int i = 0;
 	while (CHECK_BIT(pcb_states, i) && i < MAX_USERS){
 		i++;
 	}
-	return (head_ptr + i);
+	if (!CHECK_BIT(pcb_states, i)) {
+		SET_BIT(pcb_states, i);
+		return i;
+	}
+
+	perror("pcb full");
+	return -1;
 }
 
-struct list* PopProcess(struct list *queue_head){
-	struct list* temp = queue_head;
-	queue_head = temp->next;
-	queue_head->prev = NULL;
+struct list* PopProcess(struct list** queue_head){
+	struct list* temp = *queue_head;
+	*queue_head = temp->next;
+	if (*queue_head){
+		(*queue_head)->prev = NULL;
+	}
 	temp->next = NULL;
 	temp->prev = NULL;
 	return temp;
 }
 
-void PushProcess(struct list* queue_head, struct list* process){
-	struct list* tail = returnTail(queue_head);
-	tail->next = process;
-	process->prev = tail;
+struct list* PushProcess(struct list* queue_head, struct list* process){
+	if (queue_head){
+		struct list* tail = returnTail(queue_head);
+		tail->next = process;
+		process->prev = tail;
+	}
+	else{
+		queue_head = process;
+	}
+	return queue_head;
 }
 
-struct list *MakeChild(int* head_ptr, pcb_t* my_pcb, pid_t pid){
+struct list *MakeChild(struct list* head_ptr, pcb_t* my_pcb, int pcb_loc){
 
-	pid = fork();
+	pid_t pid = fork();
 	if (pid < 0){
 		perror("Fork failed");
 		return NULL;
 	}
-	else if (pid > 0){			
-		head_ptr = addNode(head_ptr, pid);
-		my_pcb->pid = pid;
-
-	}
 	else if (pid == 0){
 		execl("./user", "user", (char*) NULL);
-	}	
+	}
+	else if (pid > 0){
+		head_ptr = addNode(head_ptr, pid, pcb_loc);
+		my_pcb->pid = pid;
+		my_pcb->priority = 0;
+	}
+	else{	
+		perror("undefined behavior in MakeChild");
+		return NULL;
+	}
 	return head_ptr;
 }
 
-struct list *addNode(struct list *head_ptr, pid_t pid){
+struct list *addNode(struct list *head_ptr, pid_t pid, int pcb_loc){
 	struct list *temp = malloc (sizeof(struct list));
 
 	temp->item.process_id = pid;
+	temp->item.pcb_location = pcb_loc;
 	temp->next = NULL;
 
 	if (head_ptr == NULL){
 		temp->prev = NULL;
-		return temp;
+		head_ptr = temp;
 	}
 	else{
-	struct list *tail = returnTail(head_ptr);
-	tail->next = temp;
-	temp->prev = tail;
+		struct list *tail = returnTail(head_ptr);
+		tail->next = temp;
+		temp->prev = tail;
 	}
 	return head_ptr;
 }
@@ -94,22 +113,25 @@ int SaveLog(char* log_file_name, pid_t pid, struct timespec clock, int queue, ch
 	FILE* file_write = fopen(log_file_name, "a");
 
 	if (strcmp(log_type, "create") == 0){
-		fprintf(log_file_name, "OSS: Generating process with PID %d and putting it in queue 1 at time %02lu:%09lu\n", pid, clock.tv_sec, clock.tv_nsec); 
+		fprintf(file_write, "OSS: Generating process with PID %d and putting it in queue 0 at time %02lu:%09lu\n", pid, clock.tv_sec, clock.tv_nsec); 
 	} 
 	else if (strcmp(log_type, "dispatch") == 0){
-		fprintf(log_file_name, "OSS: Dispatching process with PID %d from queue %d at time %02lu:%09lu\n", pid, queue, clock.tv_sec, clock.tv_nsec);
+		fprintf(file_write, "OSS: Dispatching process with PID %d from queue %d at time %02lu:%09lu\n", pid, queue, clock.tv_sec, clock.tv_nsec);
 	}
 	else if (strcmp(log_type, "d_final") == 0){
-		fprintf(log_file_name, "OSS: total time this dispatch was %02lu:%09lu\n", clock.tv_sec, clock.tv_nsec);
+		fprintf(file_write, "OSS: total time this dispatch was %02lu:%09lu\n", clock.tv_sec, clock.tv_nsec);
 	}
 	else if (strcmp(log_type, "enqueue") == 0){
-		fprintf(log_file_name, "OSS: Putting process with PID %d into queue %d\n", pid, queue);
+		fprintf(file_write, "OSS: Putting process with PID %d into queue %d\n", pid, queue);
 	}
-	else if (strcmp(log_type, "terminate") == 0){
-		fprintf(log_file_name, "OSS: Receiving that process with PID %d ran for %02lu:%09lu nanoseconds\n", pid, clock.tv_sec, clock.tv_nsec);
+	else if (strcmp(log_type, "return") == 0){
+		fprintf(file_write, "OSS: Receiving that process with PID %d ran for %02lu:%09lu nanoseconds\n", pid, clock.tv_sec, clock.tv_nsec);
 	}
 	else if (strcmp(log_type, "not_done") == 0){
-		fprintf(log_file_name, "OSS: not using its entire time quantum\n");
+		fprintf(file_write, "OSS: not using its entire time quantum\n");
+	}
+	else if (strcmp(log_type, "no_process") == 0){
+		fprintf(file_write, "OSS: Scheduler ran at %02lu:%09lu, no process enqueued\n", clock.tv_sec, clock.tv_nsec);
 	}
 	fclose(file_write);
 	return 0;
@@ -157,20 +179,4 @@ void KillSlaves(struct list *head_ptr, char* file_name){
 		kill(head_ptr->item.process_id, SIGKILL);
 		destroyNode(head_ptr, (head_ptr->item).process_id, file_name);	
 	}
-}
-
-
-void clock_tick(struct timespec *clock, int increment){
-
-	while (increment){
-		if (clock->tv_nsec < (BILLION - increment)){
-			(clock->tv_nsec) += increment;
-			increment = 0;
-		}
-		else{	
-			(clock->tv_sec)++;
-			clock->tv_nsec = ((clock->tv_nsec)	 + increment - BILLION);
-		}
-	}
-//	fprintf(stderr, "SYSTEM CLOCK: %lu %lu\n", clock->tv_sec, clock->tv_nsec);
 }

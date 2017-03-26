@@ -1,4 +1,7 @@
 *.o
 *.odt
 *.pdf
+*.out
+oss
+user
 .~lock.Proj4.odt#

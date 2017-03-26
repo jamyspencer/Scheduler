@@ -8,6 +8,7 @@
 #include <sys/msg.h> 
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 #include "forkerlib.h"
 #include "obj.h"
@@ -18,14 +19,15 @@ void PrintList(void);
 void AbortProc();
 void AlarmHandler();
 
+static struct list* queue_0;
 static struct list* queue_1;
 static struct list* queue_2;
-static struct list* queue_3;
-static struct list* wait_queue;
-static struct list* executing_process;
+
+static struct list* executing_process = NULL;
 static pcb_t* control_blocks;
-static int shmid;
-static int lock_que_id;
+static struct timespec* my_clock;
+static int shmid[2];
+static int messenger;
 static char* file_name;
 
 int main ( int argc, char *argv[] ){
@@ -37,13 +39,15 @@ int main ( int argc, char *argv[] ){
 	int max_run_time = 20;
 	int child_count = 0;
 	int total_spawned = 0;
+	int pcb_loc;
+	pcb_t this_pcb;
+	struct timespec overhead;
 
-	pid_t returning_child;
-	pid_t new_child_pid;
+	pid_t returning_child = 0;
 
 	signal(2, AbortProc);
 	signal(SIGALRM, AlarmHandler);
-	queue_1 = NULL;
+	queue_0 = NULL;
 
 	while ( (c = getopt(argc, argv, "hi:l:s:t:")) != -1) {
 		switch(c){
@@ -73,72 +77,149 @@ int main ( int argc, char *argv[] ){
 	}
 	alarm(max_run_time);
 
+	//clear log file_name
+	FILE* file_write = fopen(file_name, "w+");
+	fclose(file_write);
+
 	//init random numbers
 	srand(time(0));
 
-	//Create a timepspec var to store when the next process should be spawned
+
+	//Create a timespec var to store when the next process should be spawned
 	struct timespec when_next_fork;
-		when_next_fork.tv_nsec = 0;
-		when_next_fork.tv_sec = 0;
+	zeroTimeSpec(&when_next_fork);
+	
 
 	//Create an int bit vector to track pcbs that are active 
 	int pcb_states[1];
 	pcb_states[0] = 0;	
 
-	//Create queues and a var for the process executing
-	queue_1 = malloc(sizeof(struct list) * num_users);
-	queue_2 = malloc(sizeof(struct list) * num_users);
-	queue_3 = malloc(sizeof(struct list) * num_users);
-	wait_queue = malloc(sizeof(struct list) * num_users);
-	executing_process = NULL;
 
 	//Initiallize shared memory space
-	control_blocks = shrMemMakeAttach(&shmid);
-	struct timespec* my_clock = (struct timepspec*) (control_blocks + MAX_USERS);
-
+	shrMemMakeAttach(shmid, &control_blocks, &my_clock);
+	zeroTimeSpec(my_clock);
+	for (i = 0; i < MAX_USERS; i++){
+		(control_blocks + i)->pid = -1;
+	}
 		
 	//set up lock queue with a message to allow the os in the first time
-	lock_que_id = lockMsgMakeAttach();
-	msg_t *my_lock;
-	my_lock = malloc (sizeof(msg_t) + 4);
-	(*my_lock).mtype = 1;
-	strncpy((*my_lock).mtext, "main", 4);
-	if ((msgsnd(lock_que_id, my_lock, sizeof(msg_t) + 4, 0)) == -1){
+	messenger = lockMsgMakeAttach();
+	msg_t *os_msg;
+	os_msg = malloc (sizeof(msg_t) + 4);
+	(*os_msg).mtype = 1;
+	strncpy((*os_msg).mtext, "main", 4);
+	if ((msgsnd(messenger, os_msg, sizeof(msg_t) + 4, 0)) == -1){
 		perror("msgsnd, initial message");
 	}
 
-	//set up msg_t to send acknowledgement to exiting users
-	msg_t* xt_user;
-	xt_user = malloc(sizeof(msg_t) + 1);
-	(*xt_user).mtype = 9;
-	strncpy((*xt_user).mtext, "y", 2);
+	//set up msg_t for users
+	msg_t* user_msg;
+	user_msg = malloc(sizeof(msg_t) + 1);
+	strncpy((*user_msg).mtext, "y", 2);
 	msg_t* unlock;
 	unlock = malloc(sizeof(msg_t) + 11);
 
 
 	do{//looping
 
-		if((msgrcv(lock_que_id, unlock, sizeof(msg_t) + 11, 1, 0)) ==-1){
+		if((msgrcv(messenger, unlock, sizeof(msg_t) + MAX_MSG_LEN, 1, 0)) ==-1){
 			perror("msgrcv");
 		}
-
-		if (t1_grtr_eq_than_t2(*my_clock, when_next_fork)){
-			if (MakeChild(queue_1, GetEmptyPCB(pcb_states, control_blocks), new_child_pid) == NULL){
-				perror("MakeChild failed");
-				AbortProc();			
+		//Create new user if it is time.
+		if (cmp_timespecs(*my_clock, when_next_fork) >= 0 && total_spawned < 100 && my_clock->tv_sec < 2){
+			pcb_loc = GetEmptyPCB(pcb_states, control_blocks);
+			if (pcb_loc != -1){
+				queue_0 = MakeChild(queue_0, control_blocks + pcb_loc, pcb_loc);
+				if (queue_0 == NULL){
+					perror("MakeChild failed");
+					AbortProc();			
+				}
+				total_spawned++;
+				child_count++;
+				SaveLog(file_name, (control_blocks + pcb_loc)->pid, *my_clock, 0, "create");
+				addLongToTimespec(rand() % MAX_SPAWN_DELAY + 1, &when_next_fork);
 			}
-			total_spawned++;
-			child_count++;
-			SaveLog(file_name, new_child_pid, *my_clock, 1, "create");
 		}
-//int SaveLog(char* log_file_name, pid_t pid, struct timespec clock, int queue, char* log_type
 
-		//Scheduler
-		
+
+		//Scheduler, first check if there is user process that has just ceded control of crit section
+		if (executing_process != NULL){
+			pcb_loc = executing_process->item.pcb_location;
+			this_pcb = *(control_blocks + pcb_loc);
+			SaveLog(file_name, this_pcb.pid, this_pcb.this_burst, 0, "return");
+			if (isTimeZero(this_pcb.tot_time_left)){
+				CLEAR_BIT(pcb_states, pcb_loc);
+				zeroTimeSpec(&this_pcb.tot_time_left);
+				zeroTimeSpec(&this_pcb.tot_time_running);
+				this_pcb.pid = 0;
+				this_pcb.priority = 0;
+			}
+			else{
+				//if process was interrupted and current priority queue is less than 2 then increment priority
+				if (this_pcb.is_interrupt){
+					SaveLog(file_name, this_pcb.pid, this_pcb.this_burst, 0, "not_done");
+					this_pcb.priority = 0;
+					queue_0 = PushProcess(queue_0, executing_process);
+					SaveLog(file_name, executing_process->item.process_id, *my_clock, 0, "enqueue");
+				}
+				else if(this_pcb.priority == 0){
+					(this_pcb.priority)++;
+					queue_1 = PushProcess(queue_1, executing_process);
+					SaveLog(file_name, executing_process->item.process_id, *my_clock, 1, "enqueue");
+				}
+				else if(this_pcb.priority == 1){
+					(this_pcb.priority)++;
+					queue_2 = PushProcess(queue_2, executing_process);
+					SaveLog(file_name, executing_process->item.process_id, *my_clock, 2, "enqueue");
+				}
+				else {
+					queue_2 = PushProcess(queue_2, executing_process);
+					SaveLog(file_name, executing_process->item.process_id, *my_clock, 2, "enqueue");
+				}
+
+			}
+		}
+		//Schedule a process
+		if (queue_0){
+			executing_process = PopProcess(&queue_0);
+			SaveLog(file_name, executing_process->item.process_id, *my_clock, 0, "dispatch");
+		}
+		else if (queue_1){
+			executing_process = PopProcess(&queue_1);
+			SaveLog(file_name, executing_process->item.process_id, *my_clock, 1, "dispatch");
+		}
+		else if (queue_2){
+			executing_process = PopProcess(&queue_2);
+			SaveLog(file_name, executing_process->item.process_id, *my_clock, 2, "dispatch");
+		}
+		else{
+			executing_process = NULL;
+			SaveLog(file_name, 0, *my_clock, 1, "no_process");
+		}
+
+		//advance system clock for scheduler overhead
+		zeroTimeSpec(&overhead);
+		addLongToTimespec((rand() % MAX_OVERHEAD  + 1), &overhead);
+		plusEqualsTimeSpecs(my_clock, &overhead);
+
+		SaveLog(file_name, 0, overhead, 0, "d_final");
+
+		//send message to user process, or back to OS if no user process
+		if (executing_process != NULL){
+			user_msg->mtype = executing_process->item.process_id;
+			if((msgsnd(messenger, user_msg, sizeof(msg_t) + MAX_MSG_LEN, 0)) == -1){
+				perror("msgsnd -> user: in scheduler");
+			}
+		}
+		else{
+			if((msgsnd(messenger, os_msg, sizeof(msg_t) + MAX_MSG_LEN, 0)) == -1){
+				perror("msgsnd -> os: in scheduler");
+			}
+		}
 
 		if ((returning_child = waitpid(-1, NULL, WNOHANG)) != 0){
 			if (returning_child != -1){
-				queue_1 = destroyNode(queue_1, returning_child, file_name);
+				queue_0 = destroyNode(queue_0, returning_child, file_name);
 //				printf("Child %d returned/removed\n", returning_child);
 				child_count--;
 			}
@@ -147,7 +228,7 @@ int main ( int argc, char *argv[] ){
 		PrintList();
 	}
      struct msqid_ds info;   
-    if (msgctl(lock_que_id, IPC_STAT, &info))
+    if (msgctl(messenger, IPC_STAT, &info))
             perror("msgctl IPC_STAT error ");
 
     printf("Current # of messages on queue\t %d\n", info.msg_qnum);
@@ -155,14 +236,16 @@ int main ( int argc, char *argv[] ){
 */
 
 //	printf("Total Users: %d \t Active users: %d\n", total_spawned, child_count);	
-	}while(total_spawned < 100 && my_clock->tv_sec < 2);
+	}while(child_count > 0 || (my_clock->tv_sec < 2 && total_spawned < 100));
 
-	free(my_lock);
+	free(os_msg);
 	free(unlock);
-	free(xt_user);
-	msgctl(lock_que_id, IPC_RMID, NULL);
+	free(user_msg);
+	msgctl(messenger, IPC_RMID, NULL);
 	shmdt(my_clock);
-	shmctl(shmid, IPC_RMID, NULL);
+	shmdt(control_blocks);
+	shmctl(shmid[0], IPC_RMID, NULL);
+	shmctl(shmid[1], IPC_RMID, NULL);
 	return 0;
 }
 
@@ -172,7 +255,11 @@ void AlarmHandler(){
 }
 
 void AbortProc(){
-	msgctl(lock_que_id, IPC_RMID, NULL);
+
+	while (queue_0 != NULL){	
+		kill(queue_0->item.process_id, SIGKILL);
+		destroyNode(queue_0, (queue_0->item).process_id, file_name);	
+	}
 	while (queue_1 != NULL){	
 		kill(queue_1->item.process_id, SIGKILL);
 		destroyNode(queue_1, (queue_1->item).process_id, file_name);	
@@ -181,28 +268,22 @@ void AbortProc(){
 		kill(queue_2->item.process_id, SIGKILL);
 		destroyNode(queue_2, (queue_2->item).process_id, file_name);	
 	}
-	while (queue_3 != NULL){	
-		kill(queue_3->item.process_id, SIGKILL);
-		destroyNode(queue_3, (queue_3->item).process_id, file_name);	
-	}
-	while (wait_queue != NULL){	
-		kill(wait_queue->item.process_id, SIGKILL);
-		destroyNode(wait_queue, (wait_queue->item).process_id, file_name);	
-	}
 	if (executing_process != NULL){	
 		kill(executing_process->item.process_id, SIGKILL);
 		destroyNode(executing_process, (executing_process->item).process_id, file_name);	
 	}
-	msgctl(lock_que_id, IPC_RMID, NULL);
-	shmdt(control_blocks);
-	shmctl(shmid, IPC_RMID, NULL);
 	kill(0, 2);
-	msgctl(lock_que_id, IPC_RMID, NULL);
+	msgctl(messenger, IPC_RMID, NULL);
+	shmdt(control_blocks);
+	shmdt(my_clock);
+	shmctl(shmid[1], IPC_RMID, NULL);
+	shmctl(shmid[0], IPC_RMID, NULL);
+	msgctl(messenger, IPC_RMID, NULL);
 	exit(1);
 }
 
 void PrintList(void){
-	struct list * this = queue_1;
+	struct list* this = queue_0;
 	
 	while (this){
 		printf("pid: %d\n", this->item.process_id);

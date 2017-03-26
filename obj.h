@@ -5,6 +5,9 @@
 #ifndef MAX_USERS
 #define MAX_USERS 18
 #endif
+#ifndef MAX_SPAWN_DELAY
+#define MAX_SPAWN_DELAY 200000
+#endif
 #ifndef BILLION
 #define BILLION 1000000000
 #endif
@@ -14,8 +17,11 @@
 #ifndef CHANCE_OF_INTERRUPT
 #define CHANCE_OF_INTERRUPT 35
 #endif
+#ifndef MAX_TOTAL_RUNTIME
+#define MAX_TOTAL_RUNTIME 8500000
+#endif
 #ifndef QUANTUM
-#define QUANTUM 100000
+#define QUANTUM 4000000
 #endif
 #ifndef MAX_OVERHEAD
 #define MAX_OVERHEAD 1000
@@ -38,22 +44,27 @@
 
 typedef struct pcb{
 	pid_t pid;
-	struct timespec runtime;
-	struct timespec last_burst;
-	struct timespec cpu_time;
-	struct timespec system_time;
+	struct timespec this_burst;
+	struct timespec tot_time_running;
+	struct timespec tot_time_left;
 	int priority;
+	int is_interrupt;
 }pcb_t;
 
 typedef struct queue_msg{
 	long int mtype;
-	pid_t pid;
 	char mtext[1];
 } msg_t;
 
-struct timespec* shrMemMakeAttach(int* shmid);
+int isTimeZero(struct timespec t1);
+void shrMemMakeAttach(int* shmid, pcb_t** cntl_blocks, struct timespec** clock);
 int lockMsgMakeAttach(void);
-struct timespec addTimeSpecs(struct timespec t1, struct timespec t2);
-int t1_grtr_eq_than_t2(struct timespec t1, struct timespec t2);
+void assign_t1_t2(struct timespec* t1, struct timespec* t2);
+void zeroTimeSpec(struct timespec* t1);
+void plusEqualsTimeSpecs(struct timespec* t1, struct timespec* t2);
+void minusEqualsTimeSpecs(struct timespec* t1, struct timespec* t2);
+void addLongToTimespec(long l, struct timespec* t1);
+int cmp_timespecs(struct timespec t1, struct timespec t2);
+long pwr(long n, long p);
 
 #endif

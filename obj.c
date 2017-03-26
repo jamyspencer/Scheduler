@@ -12,30 +12,41 @@
 
 
 
-pcb_t* shrMemMakeAttach(int* shmid){
-
-	pcb_t *shrd_data;
-	key_t key;
-
+void shrMemMakeAttach(int* shmid, pcb_t** cntl_blocks, struct timespec** clock){
 	/* make the key: */
-    if ((key = ftok("main.c", 'R')) == -1) {
+	int key[2];
+
+    if ((key[0] = ftok("main.c", 'R')) == -1) {
+        perror("ftok");
+        exit(1);
+    }
+    if ((key[1] = ftok("slave.c", 'R')) == -1) {
         perror("ftok");
         exit(1);
     }
 
     /* connect to (and possibly create) the segment: */
-    if ((*shmid = shmget(key, sizeof(struct timespec) + sizeof(pcb_t) * MAX_USERS, IPC_CREAT | 0644)) == -1) {
+    if ((shmid[0] = shmget(key[0], sizeof(pcb_t) * MAX_USERS, IPC_CREAT | 0644)) == -1) {
+        perror("shmget");
+        exit(1);
+    }
+    if ((shmid[1] = shmget(key[1], sizeof(struct timespec), IPC_CREAT | 0644)) == -1) {
         perror("shmget");
         exit(1);
     }
 
     /* attach to the segment to get a pointer to it: */
-    shrd_data = shmat(*shmid, (void*) NULL, 0);
-    if (shrd_data == (void *)(-1)) {
+    *cntl_blocks = shmat(shmid[0], (void*) NULL, 0);
+    if (*cntl_blocks == (void *)(-1)) {
         perror("shmat");
         exit(1);
     }
-	return shrd_data;
+    *clock = shmat(shmid[1], (void*) NULL, 0);
+    if (*clock == (void *)(-1)) {
+        perror("shmat");
+        exit(1);
+    }
+	return;
 }
 
 int lockMsgMakeAttach(void){
@@ -57,20 +68,65 @@ int lockMsgMakeAttach(void){
 	return msgque;
 }
 
-struct timespec addTimeSpecs(struct timespec t1, struct timespec t2){
-	struct timespec temp;
+int isTimeZero(struct timespec t1){
+	if (t1.tv_sec == 0 && t1.tv_nsec == 0) return 1;
+	return 0;
+}
 
-	temp.tv_sec = t1.tv_sec + t2.tv_sec;
-	temp.tv_nsec = t1.tv_nsec + t2.tv_nsec;
+void zeroTimeSpec(struct timespec* t1){
+	t1->tv_sec = 0;
+	t1->tv_nsec = 0;
+	return;
+}
 
-	if(temp.tv_sec >= BILLION){
-		temp.tv_nsec -= BILLION;
-		(temp.tv_sec)++;
+void plusEqualsTimeSpecs(struct timespec* t1, struct timespec* t2){
+
+	t1->tv_sec = t1->tv_sec + t2->tv_sec;
+	t1->tv_nsec = t1->tv_nsec + t2->tv_nsec;
+
+	if(t1->tv_nsec >= BILLION){
+		t1->tv_nsec -= BILLION;
+		(t1->tv_sec)++;
 	}
-	return temp;
+	return;
 }
 
-int t1_grtr_eq_than_t2(struct timespec t1, struct timespec t2){
-	if (t1.tv_sec >= t2.tv_sec && t1.tv_sec >= t2.tv_sec) {return GO;}
-	return STOP;
+void minusEqualsTimeSpecs(struct timespec* t1, struct timespec* t2){
+
+	t1->tv_sec = t1->tv_sec - t2->tv_sec;
+	t1->tv_nsec = t1->tv_nsec - t2->tv_nsec;
+
+	if(t1->tv_nsec < 0){
+		t1->tv_nsec += BILLION;
+		(t1->tv_sec)--;
+	}
+	return;
 }
+
+void addLongToTimespec(long l, struct timespec* t1){
+	t1->tv_nsec = t1->tv_nsec + l;
+
+	if(t1->tv_nsec >= BILLION){
+		t1->tv_nsec -= BILLION;
+		(t1->tv_sec)++;
+	}
+	return;
+}
+
+void assign_t1_t2(struct timespec* t1, struct timespec* t2){
+	t1->tv_sec = t2->tv_sec;
+	t1->tv_nsec = t2->tv_nsec;
+	return;
+}
+
+int cmp_timespecs(struct timespec t1, struct timespec t2){
+	if (t1.tv_sec >= t2.tv_sec && t1.tv_sec > t2.tv_sec) {return 1;}
+	else if (t1.tv_sec <= t2.tv_sec && t1.tv_sec < t2.tv_sec) {return -1;}
+	return 0;
+}
+
+long pwr(long n, long p){
+	if (p == 0){return 1;}
+	return pwr(n, p-1) * n;
+}
+

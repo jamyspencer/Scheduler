@@ -14,20 +14,19 @@
 
 
 int main ( int argc, char *argv[] ){
-	struct timespec now;
-	struct timespec start;
-	struct timespec run_time;
-	struct timespec x_time;
-	
 
 	int doing_it = GO;
-	int lock_len = 1;
+	int array_loc;
+	long this_quantum;
+	pcb_t* my_pcb = NULL;
+	pid_t my_pid = getpid();
+	struct timespec run_time;
 
 	//initiallize locking message
-	msg_t *my_lock;
-	my_lock = malloc(sizeof(msg_t) + 6);
-	(*my_lock).mtype = 3;
-	snprintf((*my_lock).mtext, 6, "%04d", getpid());
+	msg_t *msg_to_oss;
+	msg_to_oss = malloc(sizeof(msg_t) + 6);
+	(*msg_to_oss).mtype = 1;
+	snprintf((*msg_to_oss).mtext, 8, "%06d", my_pid);
 	int lock_que = lockMsgMakeAttach();
 
 
@@ -36,72 +35,78 @@ int main ( int argc, char *argv[] ){
 	unlock = malloc(sizeof(msg_t) + 11);
 
 	//get shared memory
-	int shr_mem_id;
-	pcb_t* control_blocks = shrMemMakeAttach(&shr_mem_id);
-	struct timespec* my_clock = control_blocks[MAX_USERS];	
+	int shmid[2];
+	struct timespec* my_clock;
+	pcb_t* control_blocks;
+	shrMemMakeAttach(shmid, &control_blocks, &my_clock);
 
+	//initiallize rand generator
+	srand(my_pid);
 
-	//set run time
-	srand(time(NULL));
+	//Calculate total run-time
 	run_time.tv_sec = 0;
-	run_time.tv_nsec = (rand() % 100000) + 1;
+	run_time.tv_nsec = 0;
+	addLongToTimespec(rand() % MAX_TOTAL_RUNTIME + 1, &run_time);
 
-	x_time = addTimeSpecs(start, run_time);
+	
 
 	while (doing_it){
 	//Critical Section--------------------------------------------------------
-		if((msgrcv(lock_que, my_lock, sizeof(msg_t) + 11, 3, 0)) == -1){
+		if((msgrcv(lock_que, unlock, sizeof(msg_t) + MAX_MSG_LEN, my_pid, 0)) == -1){
 			perror("msgrcv, slave");
 		}
+printf("in user crit section in process %d\n", my_pid);		
 
-		now.tv_sec = sys_clock->tv_sec;
-		now.tv_nsec = sys_clock->tv_nsec;
-		doing_it = t1_grtr_than_t2(x_time, now);
-
-		if (doing_it == STOP){
-
-			//initiallize exit message
-			msg_t* x_msg;
-			x_msg = malloc(sizeof(msg_t) + 11);
-			x_msg->mtype = 1;
-			x_msg->pid = getpid();
-			snprintf(x_msg->mtext, MAX_MSG_LEN,"%02lu%09lu", now.tv_sec, now.tv_nsec);
-
-			//initiallize receiver message
-			msg_t *shut_down;
-			shut_down = malloc (sizeof(msg_t) + lock_len);
-
-			shmdt(sys_clock);
-
-			if((msgsnd(lock_que, x_msg, sizeof(msg_t), 0)) == -1){
-				perror("msgsnd: x_msg");
+		//get array location of this processes pcb_location if not already done
+		if(my_pcb == NULL){
+			for (array_loc = 0; array_loc < MAX_USERS; array_loc++){
+				if ((control_blocks + array_loc)->pid == my_pid);
+				break;
 			}
-			if((msgrcv(lock_que, shut_down, sizeof(msg_t) + 1, 9, 0)) == -1){
-				perror("msgrcv, returning");
-			}
-			free (x_msg);
-			free (shut_down);
+			my_pcb = (control_blocks + array_loc);
+			zeroTimeSpec(&(my_pcb->tot_time_left));
+			assign_t1_t2(&(my_pcb->tot_time_left), &run_time);
 		}
-//		fprintf(stderr, "Exiting: %d\n", getpid());
 
-		if ((msgsnd(lock_que, my_lock, sizeof(msg_t) + lock_len, 0)) == -1){
+		//determine if the whole quantum will be used and assign a run-time accordingly
+		zeroTimeSpec(&(my_pcb->this_burst));
+		if (((rand() % 100) + 1) < CHANCE_OF_INTERRUPT){
+			this_quantum = rand() % (QUANTUM * pwr(2, (my_pcb->priority)));
+			my_pcb->is_interrupt = 1;
+		}
+		else{
+			this_quantum = QUANTUM * pwr(2, (my_pcb->priority));
+			my_pcb->is_interrupt = 0;
+		}
+		addLongToTimespec(this_quantum, &(my_pcb->this_burst));
+
+		//Check that burst-time doesn't exceed the time needed
+
+		if (cmp_timespecs(my_pcb->this_burst, my_pcb->tot_time_left) > 0){
+			assign_t1_t2(&(my_pcb->this_burst), &(my_pcb->tot_time_left));
+		}
+
+		plusEqualsTimeSpecs(&(my_pcb->tot_time_running), &(my_pcb->this_burst));
+		plusEqualsTimeSpecs(my_clock, &(my_pcb->this_burst));
+		minusEqualsTimeSpecs(&(my_pcb->tot_time_left), &(my_pcb->this_burst));
+
+		//user is done, close down everything
+		if (isTimeZero(my_pcb->tot_time_left)){
+			doing_it = STOP;
+			shmdt(control_blocks);
+			shmdt(my_clock);
+
+		}
+		if ((msgsnd(lock_que, msg_to_oss, sizeof(msg_t) + MAX_MSG_LEN, 0)) == -1){
 			perror("msgsnd");
 		}
-		
 	//End Critical Section---------------------------------------------------			
 	}
 
-	free (my_lock);
+	free (msg_to_oss);
 	free (unlock);
 
 	return 0;
 }
-
-
-
-	
-
-
-
 
 
