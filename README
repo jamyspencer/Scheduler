@@ -1,0 +1,15 @@
+-h	Help Menu
+-i	Changes the chance that an interrupt will occur(default is 50)
+-l	Set log file name(default is test.out)
+-m	Changes the number of user processes(default is 18)
+-o	Changes the maximum scheduling overhead in nanoseconds(default is 1000)
+-q	Changes the base quantum used by processes in nanoseconds(default is 4000000)
+-t	Changes the number of seconds to wait until the oss terminates all users and itself(default is 20)
+
+Chance of interrupt must be between 0-100
+enter valid file name when using the -l option
+the default max users is also the max, enter 0-18
+overhead must be between 0-5000000
+quantum must be between 0-1000000000
+max run time must be greater than 0
+

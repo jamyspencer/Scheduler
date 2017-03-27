@@ -50,6 +50,8 @@ typedef struct pcb{
 	int priority;
 	int is_interrupt;
 	int pcb_loc;
+	int quantum;
+	int percent_interrupt;
 }pcb_t;
 
 typedef struct queue_msg{

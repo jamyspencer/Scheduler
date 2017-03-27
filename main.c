@@ -35,8 +35,11 @@ int main ( int argc, char *argv[] ){
 	file_name = "test.out";
 	int c, i;
 
-	int num_users = 5;
+	int max_users = MAX_USERS;
+	int percent_interrupt = CHANCE_OF_INTERRUPT;
 	int max_run_time = 20;
+	int quantum = QUANTUM;
+	int max_overhead = MAX_OVERHEAD;
 	int child_count = 0;
 	int total_spawned = 0;
 	int pcb_loc;
@@ -49,26 +52,54 @@ int main ( int argc, char *argv[] ){
 	signal(SIGALRM, AlarmHandler);
 	queue_0 = NULL;
 
-	while ( (c = getopt(argc, argv, "hi:l:s:t:")) != -1) {
+	while ( (c = getopt(argc, argv, "hi:l:m:o:q:t:")) != -1) {
 		switch(c){
 		case 'h':
 			printf("-h\tHelp Menu\n");
-			printf("-l\tSet log file name(default is test.out)\n-s\tChanges the number of slave processes(default is 5)\n");
-			printf("-t\tChanges the number of seconds to wait until the master terminates all slaves and itself(default is 20)\n");
+			printf("-i\tChanges the chance that an interrupt will occur(default is 50)\n");
+			printf("-l\tSet log file name(default is test.out)\n-m\tChanges the number of user processes(default is 18)\n");
+			printf("-o\tChanges the maximum scheduling overhead in nanoseconds(default is 1000)\n");
+			printf("-q\tChanges the base quantum used by processes in nanoseconds(default is 4000000)\n");
+			printf("-t\tChanges the number of seconds to wait until the oss terminates all users and itself(default is 20)\n");
 			return 0;
+			break;
+		case 'i':
+			percent_interrupt = atoi(optarg);
+			if (percent_interrupt > 100 || percent_interrupt < 0){
+				printf("Error: Chance of interrupt must be between 0 and 100\n");
+				exit(1);
+			}
 			break;
 		case 'l':
 			file_name = optarg;
 			break;
-		case 's':
-			num_users = atoi(optarg);
-			if (num_users > MAX_USERS){
+		case 'm':
+			max_users = atoi(optarg);
+			if (max_users > MAX_USERS){
 				printf("Error: -s exceeds MAX_USERS, set to %d\n", MAX_USERS);
+				exit(1);
+			}
+			break;
+		case 'o':
+			max_overhead = atoi(optarg);
+			if (max_overhead < 0 || max_overhead > 5000000){
+				printf("Error: max overhead must be between 0-50000000");
+				exit(1);
+			}
+			break;
+		case 'q':
+			quantum = atoi(optarg);
+			if (quantum < 0 || quantum > BILLION){
+				printf("Error: quantum cannot be a negative number");
 				exit(1);
 			}
 			break;
 		case 't':
 			max_run_time = atoi(optarg);
+			if (max_run_time < 0){
+				printf("Error: maximum run-time cannot be a negative number");
+				exit(1);
+			}
 			break;
 		case '?':
 			return 1;
@@ -99,7 +130,9 @@ int main ( int argc, char *argv[] ){
 	shrMemMakeAttach(shmid, &control_blocks, &my_clock);
 	zeroTimeSpec(my_clock);
 	for (i = 0; i < MAX_USERS; i++){
-		(control_blocks + i)->pid = -1;
+		(control_blocks + i)->pid = 0;
+		(control_blocks + i)->quantum = quantum;
+		(control_blocks + i)->percent_interrupt = percent_interrupt;
 	}
 		
 	//set up lock queue with a message to allow the os in the first time
@@ -126,7 +159,7 @@ int main ( int argc, char *argv[] ){
 			perror("msgrcv");
 		}
 		//Create new user if it is time.
-		if ((cmp_timespecs(*my_clock, when_next_fork) >= 0) && total_spawned < 100 && my_clock->tv_sec < 2 && child_count < 2){
+		if ((cmp_timespecs(*my_clock, when_next_fork) >= 0) && total_spawned < 100 && my_clock->tv_sec < 2 && child_count < max_users){
 			pcb_loc = GetEmptyPCB(pcb_states, control_blocks);
 			if (pcb_loc != -1){
 				queue_0 = MakeChild(queue_0, control_blocks + pcb_loc, pcb_loc);
@@ -147,7 +180,7 @@ int main ( int argc, char *argv[] ){
 			pcb_loc = executing_process->item.pcb_location;
 			this_pcb = (control_blocks + pcb_loc);
 			SaveLog(file_name, this_pcb->pid, this_pcb->this_burst, 0, "return");
-log_mem_loc(this_pcb, "oss");
+//log_mem_loc(this_pcb, "oss");
 
 			if (isTimeZero(this_pcb->tot_time_left)){
 				destroyNode(executing_process, this_pcb->pid, file_name);
@@ -202,7 +235,7 @@ log_mem_loc(this_pcb, "oss");
 
 		//advance system clock for scheduler overhead
 		zeroTimeSpec(&overhead);
-		addLongToTimespec((rand() % MAX_OVERHEAD  + 1), &overhead);
+		addLongToTimespec((rand() % max_overhead + 1), &overhead);
 		plusEqualsTimeSpecs(my_clock, &overhead);
 
 		SaveLog(file_name, 0, overhead, 0, "d_final");

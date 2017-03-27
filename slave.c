@@ -66,18 +66,18 @@ int main ( int argc, char *argv[] ){
 					break;
 				}
 			}
-			log_mem_loc( (control_blocks + array_loc), "user1");				
+//log_mem_loc( (control_blocks + array_loc), "user1");				
 		}
 
 
 		//determine if the whole quantum will be used and assign a run-time accordingly
 		zeroTimeSpec(&(my_pcb->this_burst));
-		if (((rand() % 100) + 1) < CHANCE_OF_INTERRUPT){
-			this_quantum = rand() % (QUANTUM * pwr(2, (my_pcb->priority)));
+		if (((rand() % 100) + 1) < (my_pcb->percent_interrupt)){
+			this_quantum = rand() % ((my_pcb->quantum) * pwr(2, (my_pcb->priority)));
 			my_pcb->is_interrupt = 1;
 		}
 		else{
-			this_quantum = QUANTUM * pwr(2, (my_pcb->priority));
+			this_quantum = (my_pcb->quantum) * pwr(2, (my_pcb->priority));
 			my_pcb->is_interrupt = 0;
 		}
 		addLongToTimespec(this_quantum, &(my_pcb->this_burst));
@@ -92,16 +92,12 @@ int main ( int argc, char *argv[] ){
 
 		plusEqualsTimeSpecs(&(my_pcb->tot_time_running), &(my_pcb->this_burst));
 		plusEqualsTimeSpecs(my_clock, &(my_pcb->this_burst));
-printf("\ntotal time left before subtraction %02lu:%09lu\n",my_pcb->tot_time_left.tv_sec, my_pcb->tot_time_left.tv_nsec );
-printf("this burst %02lu:%09lu\n",my_pcb->this_burst.tv_sec, my_pcb->this_burst.tv_nsec );
 		minusEqualsTimeSpecs(&(my_pcb->tot_time_left), &(my_pcb->this_burst));
-printf("total time left after subtraction %02lu:%09lu\n",my_pcb->tot_time_left.tv_sec, my_pcb->tot_time_left.tv_nsec );
-printf("this burst %02lu:%09lu\n",my_pcb->this_burst.tv_sec, my_pcb->this_burst.tv_nsec );
-log_mem_loc(my_pcb, "user2");
+//log_mem_loc(my_pcb, "user2");
 		//user is done, close down everything
 		if (isTimeZero(my_pcb->tot_time_left)){
 			doing_it = STOP;
-printf("this burst %02lu:%09lu\n",my_pcb->this_burst.tv_sec, my_pcb->this_burst.tv_nsec );
+//printf("this burst %02lu:%09lu\n",my_pcb->this_burst.tv_sec, my_pcb->this_burst.tv_nsec );
 			shmdt(control_blocks);
 			shmdt(my_clock);
 
