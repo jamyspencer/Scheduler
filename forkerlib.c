@@ -49,7 +49,7 @@ struct list* PushProcess(struct list* queue_head, struct list* process){
 	return queue_head;
 }
 
-struct list *MakeChild(struct list* head_ptr, pcb_t* my_pcb, int pcb_loc){
+struct list *MakeChild(struct list* head_ptr, pcb_t* my_pcb, int pcb_loc, struct timespec clock){
 
 	pid_t pid = fork();
 	if (pid < 0){
@@ -60,7 +60,7 @@ struct list *MakeChild(struct list* head_ptr, pcb_t* my_pcb, int pcb_loc){
 		execl("./user", "user", (char*) NULL);
 	}
 	else if (pid > 0){
-		head_ptr = addNode(head_ptr, pid, pcb_loc);
+		head_ptr = addNode(head_ptr, pid, pcb_loc, clock);
 		my_pcb->pid = pid;
 		my_pcb->priority = 0;
 		my_pcb->pcb_loc = pcb_loc;
@@ -72,11 +72,12 @@ struct list *MakeChild(struct list* head_ptr, pcb_t* my_pcb, int pcb_loc){
 	return head_ptr;
 }
 
-struct list *addNode(struct list *head_ptr, pid_t pid, int pcb_loc){
+struct list *addNode(struct list *head_ptr, pid_t pid, int pcb_loc, struct timespec clock){
 	struct list *temp = malloc (sizeof(struct list));
 
 	temp->item.process_id = pid;
 	temp->item.pcb_location = pcb_loc;
+	temp->item.t_zero = clock;
 	temp->next = NULL;
 
 	if (head_ptr == NULL){
@@ -136,6 +137,21 @@ int SaveLog(char* log_file_name, pid_t pid, struct timespec clock, int queue, ch
 	}
 	fclose(file_write);
 	return 0;
+}
+
+void LogStats(char* file_name, struct stats inf){
+	FILE* file_write = fopen(file_name, "a");
+	struct timespec avg_user_wait = divTimeSpecByInt(inf.tot_user_wait, inf.total_spawned);
+	struct timespec avg_user_runtime = divTimeSpecByInt(inf.tot_user_runtime, inf.total_spawned);
+	struct timespec avg_user_lifetime = divTimeSpecByInt(inf.tot_user_lifetime, inf.total_spawned);
+
+	fprintf(file_write, "\nAverage turnaround time: %02lu:%09lu\n", avg_user_lifetime.tv_sec, avg_user_lifetime.tv_nsec);
+	fprintf(file_write, "Average process wait time: %02lu:%09lu\n", avg_user_wait.tv_sec, avg_user_wait.tv_nsec);
+	fprintf(file_write, "Average process run time: %02lu:%09lu\n", avg_user_runtime.tv_sec, avg_user_runtime.tv_nsec);
+	fprintf(file_write, "Processor idle time: %02lu:%09lu\n", inf.cpu_idle_time.tv_sec, inf.cpu_idle_time.tv_nsec);
+	fprintf(file_write, "Total users created: %d\n", inf.total_spawned);
+	fclose(file_write);
+	return;
 }
 
 //returns the head_ptr address of the list that now has the node containing the pid passed removed

@@ -62,7 +62,7 @@ int main ( int argc, char *argv[] ){
 				if ((control_blocks + array_loc)->pid == my_pid){
 					my_pcb = (control_blocks + array_loc);
 					zeroTimeSpec(&(my_pcb->tot_time_left));
-					assign_t1_t2(&(my_pcb->tot_time_left), &run_time);
+					my_pcb->tot_time_left = run_time;
 					break;
 				}
 			}
@@ -86,7 +86,7 @@ int main ( int argc, char *argv[] ){
 		//Check that burst-time doesn't exceed the time needed
 
 		if (cmp_timespecs(my_pcb->this_burst, my_pcb->tot_time_left) > 0){
-			assign_t1_t2(&(my_pcb->this_burst), &(my_pcb->tot_time_left));
+			my_pcb->this_burst = my_pcb->tot_time_left;
 			my_pcb->is_interrupt = 0;
 		}
 

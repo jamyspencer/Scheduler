@@ -32,6 +32,14 @@ static char* file_name;
 
 int main ( int argc, char *argv[] ){
 
+	struct stats mystats;
+	zeroTimeSpec(&(mystats.tot_user_wait));
+	zeroTimeSpec(&(mystats.tot_user_runtime));
+	zeroTimeSpec(&(mystats.tot_user_lifetime));
+	zeroTimeSpec(&(mystats.cpu_idle_time));
+	mystats.child_count = 0;
+	mystats.total_spawned = 0;
+
 	file_name = "test.out";
 	int c, i;
 
@@ -40,13 +48,10 @@ int main ( int argc, char *argv[] ){
 	int max_run_time = 20;
 	int quantum = QUANTUM;
 	int max_overhead = MAX_OVERHEAD;
-	int child_count = 0;
-	int total_spawned = 0;
+
 	int pcb_loc;
 	pcb_t* this_pcb;
 	struct timespec overhead;
-
-	pid_t returning_child = 0;
 
 	signal(2, AbortProc);
 	signal(SIGALRM, AlarmHandler);
@@ -75,9 +80,9 @@ int main ( int argc, char *argv[] ){
 			break;
 		case 'm':
 			max_users = atoi(optarg);
-			if (max_users > MAX_USERS){
-				printf("Error: -s exceeds MAX_USERS, set to %d\n", MAX_USERS);
-				exit(1);
+			if (max_users > MAX_USERS || max_users < 1){
+				printf("Error: -s is out of acceptable range, set to %d\n", MAX_USERS);
+				max_users = MAX_USERS;
 			}
 			break;
 		case 'o':
@@ -159,16 +164,16 @@ int main ( int argc, char *argv[] ){
 			perror("msgrcv");
 		}
 		//Create new user if it is time.
-		if ((cmp_timespecs(*my_clock, when_next_fork) >= 0) && total_spawned < 100 && my_clock->tv_sec < 2 && child_count < max_users){
+		if ((cmp_timespecs(*my_clock, when_next_fork) >= 0) && mystats.total_spawned < 100 && my_clock->tv_sec < 2 && mystats.child_count < max_users){
 			pcb_loc = GetEmptyPCB(pcb_states, control_blocks);
 			if (pcb_loc != -1){
-				queue_0 = MakeChild(queue_0, control_blocks + pcb_loc, pcb_loc);
+				queue_0 = MakeChild(queue_0, control_blocks + pcb_loc, pcb_loc, *my_clock);
 				if (queue_0 == NULL){
 					perror("MakeChild failed");
 					AbortProc();			
 				}
-				total_spawned++;
-				child_count++;
+				mystats.total_spawned++;
+				mystats.child_count++;
 				SaveLog(file_name, (control_blocks + pcb_loc)->pid, *my_clock, 0, "create");
 				addLongToTimespec(rand() % MAX_SPAWN_DELAY + 1, &when_next_fork);
 			}
@@ -183,8 +188,17 @@ int main ( int argc, char *argv[] ){
 //log_mem_loc(this_pcb, "oss");
 
 			if (isTimeZero(this_pcb->tot_time_left)){
+				mystats.temp = *my_clock; //take time now
+				minusEqualsTimeSpecs(&(mystats.temp), &(executing_process->item.t_zero));//subtract user init time
+				plusEqualsTimeSpecs(&(mystats.tot_user_lifetime), &(mystats.temp)); //add to total user lifetime
+				minusEqualsTimeSpecs(&(mystats.temp), &(this_pcb->tot_time_running));//subtract user run time
+				plusEqualsTimeSpecs(&(mystats.tot_user_wait), &(mystats.temp)); //add to total wait time
+
+				plusEqualsTimeSpecs(&(mystats.tot_user_runtime), &(this_pcb->tot_time_running));//add users runtime to total user runtime
+
+				//cleanup
 				destroyNode(executing_process, this_pcb->pid, file_name);
-				child_count--;
+				mystats.child_count--;
 				CLEAR_BIT(pcb_states, pcb_loc);
 				zeroTimeSpec(&this_pcb->tot_time_running);
 				this_pcb->pid = 0;
@@ -214,6 +228,7 @@ int main ( int argc, char *argv[] ){
 				}
 
 			}
+			executing_process = NULL;
 		}
 		//Schedule a process
 		if (queue_0){
@@ -237,6 +252,9 @@ int main ( int argc, char *argv[] ){
 		zeroTimeSpec(&overhead);
 		addLongToTimespec((rand() % max_overhead + 1), &overhead);
 		plusEqualsTimeSpecs(my_clock, &overhead);
+		if (executing_process == NULL){
+			plusEqualsTimeSpecs(&(mystats.cpu_idle_time), &overhead);
+		}
 
 		SaveLog(file_name, 0, overhead, 0, "d_final");
 
@@ -252,7 +270,7 @@ int main ( int argc, char *argv[] ){
 				perror("msgsnd -> os: in scheduler");
 			}
 		}
-		returning_child = waitpid(-1, NULL, WNOHANG);
+		waitpid(-1, NULL, WNOHANG);
 
 /*
 		PrintList();
@@ -264,9 +282,10 @@ int main ( int argc, char *argv[] ){
 	printf("pid of last sender %d vs pid of oss %d\n", info.msg_lspid, getpid());
 
 
-	printf("Total Users: %d \t Active users: %d\n", total_spawned, child_count);	
+	printf("Total Users: %d \t Active users: %d\n", mystats.total_spawned, mystats.child_count);	
 */
-	}while(child_count > 0 || (my_clock->tv_sec < 2 && total_spawned < 100));
+	}while(mystats.child_count > 0 || (my_clock->tv_sec < 2 && mystats.total_spawned < 100));
+	LogStats(file_name, mystats);
 
 	free(os_msg);
 	free(unlock);

@@ -79,6 +79,20 @@ void zeroTimeSpec(struct timespec* t1){
 	return;
 }
 
+struct timespec divTimeSpecByInt(struct timespec dividend, int divisor){
+	struct timespec result;
+
+	result.tv_sec = (dividend.tv_sec) / divisor; 
+	result.tv_nsec = (unsigned long) (((dividend.tv_sec) % divisor) * BILLION /divisor); 
+	dividend.tv_nsec = dividend.tv_nsec / divisor;
+	(result.tv_nsec) += (dividend.tv_nsec);
+	if(result.tv_nsec >= BILLION){
+		result.tv_nsec -= BILLION;
+		(result.tv_sec)++;
+	}
+	return result;	
+}
+
 void plusEqualsTimeSpecs(struct timespec* t1, struct timespec* t2){
 
 	t1->tv_sec = t1->tv_sec + t2->tv_sec;
@@ -110,12 +124,6 @@ void addLongToTimespec(long l, struct timespec* t1){
 		t1->tv_nsec -= BILLION;
 		(t1->tv_sec)++;
 	}
-	return;
-}
-
-void assign_t1_t2(struct timespec* t1, struct timespec* t2){
-	t1->tv_sec = t2->tv_sec;
-	t1->tv_nsec = t2->tv_nsec;
 	return;
 }
 

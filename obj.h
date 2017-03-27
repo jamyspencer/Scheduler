@@ -62,8 +62,8 @@ typedef struct queue_msg{
 int isTimeZero(struct timespec t1);
 void shrMemMakeAttach(int* shmid, pcb_t** cntl_blocks, struct timespec** clock);
 int lockMsgMakeAttach(void);
-void assign_t1_t2(struct timespec* t1, struct timespec* t2);
 void zeroTimeSpec(struct timespec* t1);
+struct timespec divTimeSpecByInt(struct timespec dividend, int divisor);
 void plusEqualsTimeSpecs(struct timespec* t1, struct timespec* t2);
 void minusEqualsTimeSpecs(struct timespec* t1, struct timespec* t2);
 void addLongToTimespec(long l, struct timespec* t1);

@@ -8,7 +8,7 @@
 
 Chance of interrupt must be between 0-100
 enter valid file name when using the -l option
-the default max users is also the max, enter 0-18
+the default max users is also the max, enter 1-18
 overhead must be between 0-5000000
 quantum must be between 0-1000000000
 max run time must be greater than 0
