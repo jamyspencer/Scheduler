@@ -40,7 +40,7 @@ int main ( int argc, char *argv[] ){
 	int child_count = 0;
 	int total_spawned = 0;
 	int pcb_loc;
-	pcb_t this_pcb;
+	pcb_t* this_pcb;
 	struct timespec overhead;
 
 	pid_t returning_child = 0;
@@ -126,7 +126,7 @@ int main ( int argc, char *argv[] ){
 			perror("msgrcv");
 		}
 		//Create new user if it is time.
-		if (cmp_timespecs(*my_clock, when_next_fork) >= 0 && total_spawned < 100 && my_clock->tv_sec < 2){
+		if ((cmp_timespecs(*my_clock, when_next_fork) >= 0) && total_spawned < 100 && my_clock->tv_sec < 2 && child_count < 2){
 			pcb_loc = GetEmptyPCB(pcb_states, control_blocks);
 			if (pcb_loc != -1){
 				queue_0 = MakeChild(queue_0, control_blocks + pcb_loc, pcb_loc);
@@ -145,30 +145,33 @@ int main ( int argc, char *argv[] ){
 		//Scheduler, first check if there is user process that has just ceded control of crit section
 		if (executing_process != NULL){
 			pcb_loc = executing_process->item.pcb_location;
-			this_pcb = *(control_blocks + pcb_loc);
-			SaveLog(file_name, this_pcb.pid, this_pcb.this_burst, 0, "return");
-			if (isTimeZero(this_pcb.tot_time_left)){
+			this_pcb = (control_blocks + pcb_loc);
+			SaveLog(file_name, this_pcb->pid, this_pcb->this_burst, 0, "return");
+log_mem_loc(this_pcb, "oss");
+
+			if (isTimeZero(this_pcb->tot_time_left)){
+				destroyNode(executing_process, this_pcb->pid, file_name);
+				child_count--;
 				CLEAR_BIT(pcb_states, pcb_loc);
-				zeroTimeSpec(&this_pcb.tot_time_left);
-				zeroTimeSpec(&this_pcb.tot_time_running);
-				this_pcb.pid = 0;
-				this_pcb.priority = 0;
+				zeroTimeSpec(&this_pcb->tot_time_running);
+				this_pcb->pid = 0;
+				this_pcb->priority = 0;
 			}
 			else{
 				//if process was interrupted and current priority queue is less than 2 then increment priority
-				if (this_pcb.is_interrupt){
-					SaveLog(file_name, this_pcb.pid, this_pcb.this_burst, 0, "not_done");
-					this_pcb.priority = 0;
+				if (this_pcb->is_interrupt){
+					SaveLog(file_name, this_pcb->pid, this_pcb->this_burst, 0, "not_done");
+					this_pcb->priority = 0;
 					queue_0 = PushProcess(queue_0, executing_process);
 					SaveLog(file_name, executing_process->item.process_id, *my_clock, 0, "enqueue");
 				}
-				else if(this_pcb.priority == 0){
-					(this_pcb.priority)++;
+				else if(this_pcb->priority == 0){
+					(this_pcb->priority)++;
 					queue_1 = PushProcess(queue_1, executing_process);
 					SaveLog(file_name, executing_process->item.process_id, *my_clock, 1, "enqueue");
 				}
-				else if(this_pcb.priority == 1){
-					(this_pcb.priority)++;
+				else if(this_pcb->priority == 1){
+					(this_pcb->priority)++;
 					queue_2 = PushProcess(queue_2, executing_process);
 					SaveLog(file_name, executing_process->item.process_id, *my_clock, 2, "enqueue");
 				}
@@ -216,26 +219,20 @@ int main ( int argc, char *argv[] ){
 				perror("msgsnd -> os: in scheduler");
 			}
 		}
+		returning_child = waitpid(-1, NULL, WNOHANG);
 
-		if ((returning_child = waitpid(-1, NULL, WNOHANG)) != 0){
-			if (returning_child != -1){
-				queue_0 = destroyNode(queue_0, returning_child, file_name);
-//				printf("Child %d returned/removed\n", returning_child);
-				child_count--;
-			}
-		}
-/*	if (child_count < 2){
+/*
 		PrintList();
-	}
      struct msqid_ds info;   
     if (msgctl(messenger, IPC_STAT, &info))
             perror("msgctl IPC_STAT error ");
 
     printf("Current # of messages on queue\t %d\n", info.msg_qnum);
 	printf("pid of last sender %d vs pid of oss %d\n", info.msg_lspid, getpid());
-*/
 
-//	printf("Total Users: %d \t Active users: %d\n", total_spawned, child_count);	
+
+	printf("Total Users: %d \t Active users: %d\n", total_spawned, child_count);	
+*/
 	}while(child_count > 0 || (my_clock->tv_sec < 2 && total_spawned < 100));
 
 	free(os_msg);
@@ -289,5 +286,19 @@ void PrintList(void){
 		printf("pid: %d\n", this->item.process_id);
 		this = this->next;
 	}
-	printf("*****END*******\n");
+	printf("*****END*******queue0******\n");
+	this = queue_1;
+	
+	while (this){
+		printf("pid: %d\n", this->item.process_id);
+		this = this->next;
+	}
+	printf("*****END*******queue1******\n");
+	this = queue_2;
+
+	while (this){
+		printf("pid: %d\n", this->item.process_id);
+		this = this->next;
+	}
+	printf("*****END*******queue2******\n");
 }

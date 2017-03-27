@@ -63,6 +63,7 @@ struct list *MakeChild(struct list* head_ptr, pcb_t* my_pcb, int pcb_loc){
 		head_ptr = addNode(head_ptr, pid, pcb_loc);
 		my_pcb->pid = pid;
 		my_pcb->priority = 0;
+		my_pcb->pcb_loc = pcb_loc;
 	}
 	else{	
 		perror("undefined behavior in MakeChild");

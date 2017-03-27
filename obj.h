@@ -6,7 +6,7 @@
 #define MAX_USERS 18
 #endif
 #ifndef MAX_SPAWN_DELAY
-#define MAX_SPAWN_DELAY 200000
+#define MAX_SPAWN_DELAY 2000000
 #endif
 #ifndef BILLION
 #define BILLION 1000000000
@@ -15,10 +15,10 @@
 #define MAX_MSG_LEN 12
 #endif
 #ifndef CHANCE_OF_INTERRUPT
-#define CHANCE_OF_INTERRUPT 35
+#define CHANCE_OF_INTERRUPT 50
 #endif
 #ifndef MAX_TOTAL_RUNTIME
-#define MAX_TOTAL_RUNTIME 8500000
+#define MAX_TOTAL_RUNTIME 100000000
 #endif
 #ifndef QUANTUM
 #define QUANTUM 4000000
@@ -49,6 +49,7 @@ typedef struct pcb{
 	struct timespec tot_time_left;
 	int priority;
 	int is_interrupt;
+	int pcb_loc;
 }pcb_t;
 
 typedef struct queue_msg{
@@ -66,5 +67,6 @@ void minusEqualsTimeSpecs(struct timespec* t1, struct timespec* t2);
 void addLongToTimespec(long l, struct timespec* t1);
 int cmp_timespecs(struct timespec t1, struct timespec t2);
 long pwr(long n, long p);
+void log_mem_loc(pcb_t* addr, char* exec);
 
 #endif

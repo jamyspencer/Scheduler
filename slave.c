@@ -53,20 +53,22 @@ int main ( int argc, char *argv[] ){
 	while (doing_it){
 	//Critical Section--------------------------------------------------------
 		if((msgrcv(lock_que, unlock, sizeof(msg_t) + MAX_MSG_LEN, my_pid, 0)) == -1){
-			perror("msgrcv, slave");
+			printf("msgrcv, slave, pid:%d\n", my_pid);
 		}
-printf("in user crit section in process %d\n", my_pid);		
 
 		//get array location of this processes pcb_location if not already done
 		if(my_pcb == NULL){
 			for (array_loc = 0; array_loc < MAX_USERS; array_loc++){
-				if ((control_blocks + array_loc)->pid == my_pid);
-				break;
+				if ((control_blocks + array_loc)->pid == my_pid){
+					my_pcb = (control_blocks + array_loc);
+					zeroTimeSpec(&(my_pcb->tot_time_left));
+					assign_t1_t2(&(my_pcb->tot_time_left), &run_time);
+					break;
+				}
 			}
-			my_pcb = (control_blocks + array_loc);
-			zeroTimeSpec(&(my_pcb->tot_time_left));
-			assign_t1_t2(&(my_pcb->tot_time_left), &run_time);
+			log_mem_loc( (control_blocks + array_loc), "user1");				
 		}
+
 
 		//determine if the whole quantum will be used and assign a run-time accordingly
 		zeroTimeSpec(&(my_pcb->this_burst));
@@ -80,19 +82,26 @@ printf("in user crit section in process %d\n", my_pid);
 		}
 		addLongToTimespec(this_quantum, &(my_pcb->this_burst));
 
+
 		//Check that burst-time doesn't exceed the time needed
 
 		if (cmp_timespecs(my_pcb->this_burst, my_pcb->tot_time_left) > 0){
 			assign_t1_t2(&(my_pcb->this_burst), &(my_pcb->tot_time_left));
+			my_pcb->is_interrupt = 0;
 		}
 
 		plusEqualsTimeSpecs(&(my_pcb->tot_time_running), &(my_pcb->this_burst));
 		plusEqualsTimeSpecs(my_clock, &(my_pcb->this_burst));
+printf("\ntotal time left before subtraction %02lu:%09lu\n",my_pcb->tot_time_left.tv_sec, my_pcb->tot_time_left.tv_nsec );
+printf("this burst %02lu:%09lu\n",my_pcb->this_burst.tv_sec, my_pcb->this_burst.tv_nsec );
 		minusEqualsTimeSpecs(&(my_pcb->tot_time_left), &(my_pcb->this_burst));
-
+printf("total time left after subtraction %02lu:%09lu\n",my_pcb->tot_time_left.tv_sec, my_pcb->tot_time_left.tv_nsec );
+printf("this burst %02lu:%09lu\n",my_pcb->this_burst.tv_sec, my_pcb->this_burst.tv_nsec );
+log_mem_loc(my_pcb, "user2");
 		//user is done, close down everything
 		if (isTimeZero(my_pcb->tot_time_left)){
 			doing_it = STOP;
+printf("this burst %02lu:%09lu\n",my_pcb->this_burst.tv_sec, my_pcb->this_burst.tv_nsec );
 			shmdt(control_blocks);
 			shmdt(my_clock);
 

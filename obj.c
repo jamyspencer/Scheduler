@@ -120,13 +120,23 @@ void assign_t1_t2(struct timespec* t1, struct timespec* t2){
 }
 
 int cmp_timespecs(struct timespec t1, struct timespec t2){
-	if (t1.tv_sec >= t2.tv_sec && t1.tv_sec > t2.tv_sec) {return 1;}
-	else if (t1.tv_sec <= t2.tv_sec && t1.tv_sec < t2.tv_sec) {return -1;}
+	if (t1.tv_sec > t2.tv_sec) return 1;
+	else if (t1.tv_sec < t2.tv_sec) return -1;
+	else if (t1.tv_nsec > t2.tv_nsec) return 1;
+	else if (t1.tv_nsec < t2.tv_nsec) return -1;
 	return 0;
-}
+} 
 
 long pwr(long n, long p){
 	if (p == 0){return 1;}
 	return pwr(n, p-1) * n;
+}
+
+void log_mem_loc(pcb_t* addr, char* exec){
+	FILE* file_write = fopen("memlog.out", "a");
+	fprintf(file_write, "PID:%6d PCB: %03d", addr->pid, addr->pcb_loc); 
+	fprintf(file_write, " Memory  Address: %09x, Burst: %09lu, Executable: %s\n", &(*addr), addr->this_burst.tv_nsec, exec); 
+	fclose(file_write);
+	return;
 }
 
